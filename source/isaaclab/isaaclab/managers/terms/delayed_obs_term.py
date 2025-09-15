@@ -10,16 +10,19 @@ from isaaclab.utils.buffers import DelayBuffer
 
 class DelayedObsTerm(ManagerTermBase):
     """Return a stochastically delayed (stale) version of another observation term.
+    This can also be used to model multi-rate observations for non-sensor terms,
+    e.g., pure MDP terms or proprioceptive terms.
 
     This wraps an existing observation term/function, pushes each new batched
     observation into a DelayBuffer, and returns an older sample according to a
     per-environment integer time-lag. Lags are drawn in [min_lag, max_lag].
     with an optional probability to *hold* the previous lag (to mimic repeated 
     frames). With 'update_period>0' (multi-rate), new lags are applied only
-    on refresh ticks. Between refreshes the realised lag can increase at most
-    by +1 (frame hold). This process is causal: the lag for each environment
-    can only increase by 1 each step, ensuring that the returned observation
-    is never older than the previous step's lagged observation.
+    on refresh ticks, which occur every update_period. Between refreshes the
+    realised lag can increase at most by +1 (frame hold). This process is
+    causal: the lag for each environment can only increase by 1 each step,
+    ensuring that the returned observation is never older than the previous
+    step's lagged observation.
 
     Shapes are preserved: the returned tensor has the exact shape of the wrapped
     term (``[num_envs, *obs_shape]``).
@@ -49,6 +52,7 @@ class DelayedObsTerm(ManagerTermBase):
             If False, all envs update their lag simultaneously. Default True.
 
     Minimal example (drop in replacement for locomotion velocity tasks in velocity_env_cfg.py):
+    Delay 1-6 steps, per-env, with 66% hold probability (no multi-rate):
         height_scan = ObsTerm(
             func=DelayedObsTerm,
             params={
@@ -57,11 +61,28 @@ class DelayedObsTerm(ManagerTermBase):
                     "func_params": {"sensor_cfg": SceneEntityCfg("height_scanner")},
                     "min_lag": 1, "max_lag": 6,
                     "per_env": True, "hold_prob": 0.66,
+                    "update_period": 0, "per_env_phase": False,
                 },
             },
             noise=Unoise(n_min=-0.1, n_max=0.1),
             clip=(-1.0, 1.0),
         )
+        
+    No delay, multi-rate example (3-step cadence):
+    height_scan = ObsTerm(
+            func=DelayedObsTerm,
+            params={
+                "_": {
+                    "func": mdp.height_scan,
+                    "func_params": {"sensor_cfg": SceneEntityCfg("height_scanner")},
+                    "min_lag": 3, "max_lag": 3,
+                    "per_env": True, "hold_prob": 0.0,
+                    "update_period": 3, "per_env_phase": True,
+                },
+            },
+            noise=Unoise(n_min=-0.1, n_max=0.1),
+            clip=(-1.0, 1.0),
+        
     """
 
     def __init__(self, env, cfg: ObservationTermCfg):
